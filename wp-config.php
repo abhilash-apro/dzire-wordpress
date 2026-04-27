@@ -99,6 +99,10 @@ define( 'WP_AUTO_UPDATE_CORE', 'minor' );
 /**
  * Dynamic URL overrides for migration and Docker.
  */
+if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+    $_SERVER['HTTPS'] = 'on';
+}
+
 if (isset($_SERVER['HTTP_HOST'])) {
     $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     define('WP_HOME', $protocol . '://' . $_SERVER['HTTP_HOST']);
