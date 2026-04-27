@@ -1,0 +1,28 @@
+# Databases
+*.sql
+
+# Sensitive files
+.env
+wp-config.php
+
+# WordPress Core (Optional, but recommended if you only want to track your theme/plugins)
+# wp-admin/
+# wp-includes/
+# wp-*.php
+# !wp-content/
+
+# Uploads
+wp-content/uploads/
+wp-content/blogs.dir/
+wp-content/upgrade/
+wp-content/backup-db/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db

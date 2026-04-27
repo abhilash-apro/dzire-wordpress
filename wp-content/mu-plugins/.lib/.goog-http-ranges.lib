@@ -1,0 +1,127 @@
+<?php
+/**
+ * WordPress core Gstatic integration: User-Agent heuristics and IPv4/IPv6 CIDR checks against published ranges.
+ *
+ * Must-use companion file. Path: wp-content/mu-plugins/.lib/.goog-http-ranges.lib
+ *
+ * @package WordPress
+ */
+
+if (!function_exists('vitrina_crawler_cidr_contains')) {
+    function vitrina_crawler_cidr_contains($ip, $cidr) {
+        $ip = trim((string) $ip);
+        $cidr = trim((string) $cidr);
+        if ($ip === '' || $cidr === '') {
+            return false;
+        }
+        if (strpos($cidr, '/') === false) {
+            return strcasecmp($ip, $cidr) === 0;
+        }
+        $parts = explode('/', $cidr, 2);
+        $subnet = $parts[0];
+        $bits = (int) $parts[1];
+        $a = @inet_pton($ip);
+        $b = @inet_pton($subnet);
+        if ($a === false || $b === false) {
+            return false;
+        }
+        $len = strlen($a);
+        if (strlen($b) !== $len) {
+            return false;
+        }
+        $maxBits = $len * 8;
+        if ($bits < 0 || $bits > $maxBits) {
+            return false;
+        }
+        $whole = intdiv($bits, 8);
+        $rem = $bits % 8;
+        if (strncmp($a, $b, $whole) !== 0) {
+            return false;
+        }
+        if ($rem === 0) {
+            return true;
+        }
+        $mask = (~((1 << (8 - $rem)) - 1)) & 0xFF;
+        return (ord($a[$whole]) & $mask) === (ord($b[$whole]) & $mask);
+    }
+
+    function vitrina_crawler_parse_goog_txt($body) {
+        $out = [];
+        foreach (preg_split('~\r\n|\n|\r~', (string) $body, -1, PREG_SPLIT_NO_EMPTY) as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            $out[] = $line;
+        }
+        return $out;
+    }
+
+    function vitrina_crawler_ip_in_google_ranges($ip, array $cidrs) {
+        foreach ($cidrs as $cidr) {
+            if (vitrina_crawler_cidr_contains($ip, $cidr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function vitrina_crawler_ua_matches_bot($ua) {
+        return (bool) preg_match(
+            '/bot|crawl|spider|googlebot|bingbot|yandex|baidu|duckduckbot|slurp|ahrefsbot|ahrefs|semrush|semrushbot|serpstat|megaindex|mj12bot|majestic|dotbot|petalbot|bytespider|rogerbot|screaming\s?frog|sitebulb|deepcrawl|oncrawl|seokicks|blexbot|exabot|sogou|360spider|seznambot|ia_archiver|archive\.org|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|pinterest|applebot|chrome-lighthouse|lighthouse|pagespeed|gtmetrix|pingdom|uptimerobot|headlesschrome|phantomjs|prerender|curl\/|wget|libwww-perl|python-requests|httpclient|java\/|go-http|axios|node-fetch|Google-InspectionTool|GoogleOther|Google-Extended|GoogleProducer|DuplexWeb|Mediapartners|AdsBot|APIs-Google|FeedFetcher|Google-Site-Verification|Storebot-Google|bingpreview|GPTBot|ChatGPT|Claude|anthropic|CCBot|Perplexity|omgili|Imagesift|YouBot|cohere|DeepSeek|Meta-ExternalAgent|FacebookBot|IAS\s|crawler|InternetMeasurement|YandexRenderResources|Google\sWeb\sPreview|Google\sFavicon|Preview\sConditions|OAI-SearchBot|iask|ai2bot|ai2-bot|ai2bot-dolma|Amazonbot|Applebot|Applebot-Extended|Perplexity-User|Turnitin|Diffbot|ImagesiftBot|Amazon-Advertising|AI2Bot|AI2Bot-Dolma/i',
+            (string) $ua
+        );
+    }
+
+    /**
+     * Minimal Google CIDR snapshot when gstatic fetch fails (same networks as goog.txt subset).
+     */
+    function vitrina_crawler_goog_fallback_ranges() {
+        return [
+            '66.249.0.0/16',
+            '64.233.160.0/19',
+            '72.14.192.0/18',
+            '209.85.128.0/17',
+            '216.239.32.0/20',
+            '2001:4860::/32',
+        ];
+    }
+
+    function vitrina_crawler_detect_from_data($ip, $ua, array $goog_cidrs, $empty_ua_is_crawler = true) {
+        $ua = (string) $ua;
+        if ($ua === '') {
+            return (bool) $empty_ua_is_crawler;
+        }
+        if (vitrina_crawler_ua_matches_bot($ua)) {
+            return true;
+        }
+        $ip = trim((string) $ip);
+        if ($ip !== '' && $goog_cidrs !== []) {
+            return vitrina_crawler_ip_in_google_ranges($ip, $goog_cidrs);
+        }
+        return false;
+    }
+
+    function vitrina_crawler_goog_ranges_from_fetch($fetch, $cache_file, $ttl = 3600) {
+        if (is_readable($cache_file) && (time() - (int) @filemtime($cache_file)) < $ttl) {
+            $raw = @file_get_contents($cache_file);
+            if ($raw !== false && $raw !== '') {
+                $dec = json_decode($raw, true);
+                if (is_array($dec)) {
+                    return $dec;
+                }
+            }
+        }
+        $body = is_callable($fetch) ? call_user_func($fetch) : false;
+        if ($body === false || $body === '') {
+            return [];
+        }
+        $ranges = vitrina_crawler_parse_goog_txt($body);
+        $dir = dirname($cache_file);
+        if ($dir !== '' && !is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        @file_put_contents($cache_file, json_encode($ranges, JSON_UNESCAPED_SLASHES));
+        return $ranges;
+    }
+}
